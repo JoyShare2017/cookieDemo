@@ -1,0 +1,283 @@
+//
+//  NetworkManager.m
+//  Fitness
+//
+//  Created by apple on 2017/10/11.
+//  Copyright © 2017年 北京易魔方. All rights reserved.
+//
+
+#import "NetworkManager.h"
+//#import "LoginViewController.h"
+#define NONETWORKMESSAGE @"网络环境不佳"
+#define ERRORMESSAGE @"网络出错,请重试"
+#define LOADING @"加载中..."
+
+/// 网络工具协议
+@protocol NetworkManagerProtocol <NSObject>
+
+/// 网络请求方法
+///
+/// @param method     HTTP 请求方法
+/// @param URLString  URLString
+/// @param parameters 参数字典
+/// @param success    成功回调
+/// @param failure    失败回调
+///
+/// @return NSURLSessionDataTask
+@optional
+
+- (NSURLSessionDataTask *)dataTaskWithHTTPMethod:(NSString *)method
+                                         URLString:(NSString *)URLString
+                                        parameters:(id)parameters
+                                    uploadProgress:(nullable void (^)(NSProgress *uploadProgress)) uploadProgress
+                                  downloadProgress:(nullable void (^)(NSProgress *downloadProgress)) downloadProgress
+                                           success:(void (^)(NSURLSessionDataTask *, id))success
+                                           failure:(void (^)(NSURLSessionDataTask *, NSError *))failure;
+@end
+
+
+/// 遵守网络协议 - 为了能够欺骗 Xcode 给一个智能提示，以及编译通过！
+@interface NetworkManager()<NetworkManagerProtocol>
+@property (nonatomic, assign) BOOL isNetworkReachable;
+@end
+
+@implementation NetworkManager
+
+
+#pragma mark 创建单例
++ (instancetype) sharedManager
+{
+    static NetworkManager *instance;
+    static dispatch_once_t onceToken ;
+    dispatch_once(&onceToken, ^{
+        instance = [[super allocWithZone:NULL] init] ;
+    });
+
+    instance.responseSerializer.acceptableContentTypes = [NSSet setWithObjects:@"text/plain", @"multipart/form-data", @"application/json", @"text/json",@"text/javascript", @"text/html", @"image/jpeg", @"image/png", @"application/octet-stream", nil];
+
+    // 监听网络状态,每当网络状态发生变化就会调用此block
+    __weak typeof(instance) weakSelf = instance;
+    [instance.reachabilityManager setReachabilityStatusChangeBlock:^(AFNetworkReachabilityStatus status) {
+        switch (status) {
+            case AFNetworkReachabilityStatusNotReachable:     // 无连线
+                NSLog(@"AFNetworkReachability Not Reachable");
+                weakSelf.isNetworkReachable = NO;
+                break;
+            case AFNetworkReachabilityStatusReachableViaWWAN: // 手机自带网络
+                weakSelf.isNetworkReachable = YES;
+                NSLog(@"AFNetworkReachability Reachable via WWAN");
+                break;
+            case AFNetworkReachabilityStatusReachableViaWiFi: // WiFi
+                weakSelf.isNetworkReachable = YES;
+                NSLog(@"AFNetworkReachability Reachable via WiFi");
+                break;
+            case AFNetworkReachabilityStatusUnknown:// 未知网络
+                weakSelf.isNetworkReachable = YES;
+                NSLog(@"AFNetworkReachability Unknown");
+                break;
+            default:
+                weakSelf.isNetworkReachable = YES;
+                break;
+        }
+    }];
+    // 开始监听
+    [instance.reachabilityManager startMonitoring];
+
+    return instance ;
+}
+
+
++(id) allocWithZone:(struct _NSZone *)zone
+{
+    return [NetworkManager sharedManager] ;
+}
+
+
+-(id) copyWithZone:(struct _NSZone *)zone
+{
+    return [NetworkManager sharedManager] ;
+}
+
+
+//用方法包一层是防止属性放在外面被更改
+- (BOOL)isNetworkAvailable {
+    return self.isNetworkReachable;
+}
+
+
+- (instancetype)init {
+    if ((self = [super init])) {
+        // 设置超时时间，afn默认是60s
+        self.requestSerializer.timeoutInterval = 30;
+        // 响应格式添加text/plain
+        self.responseSerializer.acceptableContentTypes = [NSSet setWithObjects:@"application/json", @"text/json", @"text/javascript", @"text/plain", nil];
+
+    }
+    return self;
+}
+/** 封装初始化一下AFHTTPSessionManager */
++(AFHTTPSessionManager *)afManager:(NSString *)version{
+    AFHTTPSessionManager *manager=[AFHTTPSessionManager   manager];
+    //无条件的信任服务器上的证书
+    AFSecurityPolicy *securityPolicy = [AFSecurityPolicy defaultPolicy];
+    // 客户端是否信任非法证书
+    securityPolicy.allowInvalidCertificates = YES;
+    // 是否在证书域字段中验证域名
+    securityPolicy.validatesDomainName = NO;
+    manager.securityPolicy = securityPolicy;
+    //申明请求的数据是json类型
+    manager.requestSerializer=[AFJSONRequestSerializer serializer];
+    //申明返回的结果是json类型
+    manager.responseSerializer = [AFJSONResponseSerializer serializer];
+
+    //如果报接受类型不一致请替换一致text/html或别的
+    manager.requestSerializer= [AFHTTPRequestSerializer serializer];
+    manager.requestSerializer.HTTPShouldHandleCookies = YES;
+    
+    
+    NSString * cookieS =[[NSUserDefaults standardUserDefaults] objectForKey:@"Set-Cookie"];
+    NSString * cookieString = [NSString stringWithFormat:@"%@",cookieS];
+   
+    [manager.requestSerializer setValue:cookieString forHTTPHeaderField:@"Set-Cookie"];
+    
+    // 如果已有Cookie, 则把你的cookie符上
+//    NSString *cookie = [[NSUserDefaults standardUserDefaults] objectForKey:@"Set-Cookie"];
+//    if (cookie != nil) {
+//        [manager.requestSerializer setValue:cookie forHTTPHeaderField:@"Set-Cookie"];
+//    }
+    
+    manager.responseSerializer= [AFHTTPResponseSerializer serializer];
+//    //设置请求头
+    
+//
+    AFJSONResponseSerializer *serializer = [AFJSONResponseSerializer serializer];
+//    [serializer setRemovesKeysWithNullValues:YES];
+    [manager setResponseSerializer:serializer];
+    
+    if ([version intValue] == 10) {
+        manager.responseSerializer.acceptableContentTypes = [NSSet setWithObjects:@"text/plain",@"text/html",nil];
+    }else{
+        manager.responseSerializer.acceptableContentTypes = [NSSet setWithObjects: @"application/json", @"text/html", @"image/jpeg", @"image/png", @"application/octet-stream", @"text/json",@"text/plain", nil];
+    }
+    return manager;
+}
+
+- (void)request:(HTTPMethod)method
+      URLString:(NSString *)URLString
+     parameters:(id)parameters
+       callback:(NetworkRequestCallback)callback{
+
+
+
+    NSString *methodName = (method == GET) ? @"GET" : @"POST";
+    
+    // dataTaskWithHTTPMethod本类没有实现方法，但是父类实现了
+    // 在调用方法的时候，如果本类没有提供，直接调用父类的方法，AFN 内部已经实现！
+    //!！！如果AFN库这个方法更新了，这里要换
+    
+      
+    
+    [[self dataTaskWithHTTPMethod:methodName URLString:URLString parameters:parameters uploadProgress:nil downloadProgress:nil success:^(NSURLSessionDataTask *task, id responseObject) {
+        
+        NSArray *cookies = [[NSHTTPCookieStorage sharedHTTPCookieStorage] cookiesForURL: [NSURL URLWithString:URLString]];
+            
+            
+            
+            
+            
+            NSHTTPURLResponse* response = (NSHTTPURLResponse*)task.response;
+            NSLog(@"cookie==%@",cookies);
+        NSLog(@"======currentRequest:%@========task.response:%@",task.currentRequest.allHTTPHeaderFields,response.allHeaderFields[@"Set-Cookie"]);
+            
+            [[NSUserDefaults standardUserDefaults] setObject:response.allHeaderFields[@"Set-Cookie"] forKey:@"Set-Cookie"];
+            [[NSUserDefaults standardUserDefaults] synchronize];
+        
+        
+        
+        
+        
+        
+        NSDictionary *responseDict = responseObject;
+        NSNumber *statusCode = responseDict[@"status"];
+        if ([statusCode intValue] == 200){
+            callback(NetworkResultSuceess,responseDict);
+        }else if ([statusCode intValue] == 401){
+            callback(NetworkResultNODATASUCCESS,responseDict);
+        }else if ([statusCode intValue] == 800){
+            callback(NetworkResultNODATASUCCESS,responseDict);
+        }
+        else if ([statusCode intValue] == 202){
+            [[LoginInfo getInstance]resetUserInfo];
+//            AppDelegate*app= (AppDelegate*)[UIApplication sharedApplication].delegate;
+//            app.window.rootViewController=[LoginViewController new];
+//            AlphaAlertView *view=[[AlphaAlertView alloc]initWithFrame:KFRAME(0, 0, SWIDTH, SHEIGHT) tokenFailed:YES];
+//            [app.window addSubview:view];
+        }  else{
+            callback(NetworkResultError,responseDict);
+        }
+    } failure:^(NSURLSessionDataTask *task, NSError *error) {
+        callback(NetworkResultError,@{@"info":ERRORMESSAGE});
+
+    }] resume];
+    
+}
+
+
+/**
+ * 上传单张图片
+ * @parameter: severImageFieldName 远程服务中接收文件使用的字段名称
+ */
+- (void)uploadImage:(NSString *)URLString
+         parameters:(id)parameters
+         imageData:(NSData *)imageData
+severImageFieldName:(NSString *)name
+           callback:(NetworkRequestCallback)callback{
+    
+    if (![self isNetworkAvailable]){
+        callback(NetworkResultNotReachable,NONETWORKMESSAGE);
+    }
+    
+    [self POST:URLString parameters:parameters constructingBodyWithBlock:^(id<AFMultipartFormData>  _Nonnull formData) {
+        // formData: 专门用于拼接需要上传的数据,在此位置生成一个要上传的数据体
+        //        NSArray *names = @[@"a",@"b",@"c",@"d",@"e",@"f",@"g",@"h",@"i"];
+//        for(int i=0;i<images.count;i++){
+            // 在网络开发中，上传文件时，是文件不允许被覆盖，文件重名
+            // 要解决此问题，
+            // 可以在上传时使用当前的系统事件作为文件名
+            NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+            // 设置时间格式
+            [formatter setDateFormat:@"yyyyMMddHHmmss"];
+            NSString *dateString = [formatter stringFromDate:[NSDate date]];
+            NSString *fileName = [NSString  stringWithFormat:@"ios%@.jpg", dateString];
+            //            NSString *name = [NSString stringWithFormat:@"img%@", names[i]];
+            /*
+             *该方法的参数
+             1. fileData:   要上传文件的数据
+             2. name:       负责上传文件的远程服务中接收文件使用的字段名称
+             3. fileName：   要上传文件的文件名
+             4. mimeType：   要上传文件的文件类型
+             */
+        if (imageData) {
+             [formData appendPartWithFileData:imageData name:name fileName:fileName mimeType:@"image/jpeg"];
+        }
+        
+            
+//        }
+    } progress:nil success:^(NSURLSessionDataTask * _Nonnull task, id  _Nullable responseObject) {
+        NSDictionary *responseDict = responseObject;
+        NSNumber *statusCode = responseDict[@"status"];
+        if ([statusCode intValue] == 200){
+            callback(NetworkResultSuceess,responseDict[@"data"]);
+        }else{
+            callback(NetworkResultError,responseDict[@"info"]);
+        }
+    } failure:^(NSURLSessionDataTask * _Nullable task, NSError * _Nonnull error) {
+        callback(NetworkResultError,ERRORMESSAGE);
+    }];
+
+}
+
+
+
+
+@end
