@@ -24,6 +24,7 @@
                                        }mutableCopy];
     [CommonRequest commonRequestWithServerName:@"http://220.115.18.18:8001/fh-system/user/editUserOwn" andParams:mdic andComplete:^(NetworkResult resultCode, id obj) {
         //尝试放到github托管
+        //再次尝试放到github托管再次尝试放到github托管再次尝试放到github托管再次尝试放到github托管再次尝试放到github托管再次尝试放到github托管再次尝试放到github托管再次尝试放到github托管再次尝试放到github托管再次尝试放到github托管再次尝试放到github托管再次尝试放到github托管
     }];
 }
 
